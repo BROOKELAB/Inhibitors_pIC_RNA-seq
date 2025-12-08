@@ -1,0 +1,552 @@
+---
+title: "et02b21-48"
+author: "Elizabeth Thayer"
+date: "2024-07-01"
+output: html_document
+---
+Load libraires
+```{r message=FALSE, warning=FALSE}
+library(org.Hs.eg.db)
+library(edgeR)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(gtools)
+library(ComplexHeatmap)
+library(circlize)
+```
+
+read in all counts
+```{r}
+# read in count matrix generated
+df_combined <- readr::read_tsv("/Users/ethayer/Google Drive/Grad School/Brooke Lab/Data/et02b21/et02b48/et02b21.48_counts.txt")
+
+# take out all the genes that are ambiguously matched/unmatched
+df_counts_combined <- df_combined %>% filter(!grepl("^N_", GeneName))
+```
+
+Mapping the gene IDs, changing to gene symbol instead of ensembl
+```{r}
+df_counts_combined %>% head()
+# translating ensembl id to gene symbol (IFNL1)
+mapped_ids_combined <- mapIds(org.Hs.eg.db, keys=df_counts_combined$GeneName,
+                     column = "SYMBOL", keytype = "ENSEMBL")
+# if you dont find a name, instead of na, use old symbol (ensembl ENSG00000223972)
+mapped_ids_combined <- ifelse(is.na(mapped_ids_combined), yes = df_counts_combined$GeneName, no = mapped_ids_combined)
+# replace old gene names with mapped ones (or with the weird id)
+df_counts_combined$GeneName <- mapped_ids_combined
+df_counts_combined
+```
+
+```{r}
+#grouping by treatment conditions (and taking away replicate names)
+new_groupalljnkjak <- df_counts_combined %>% 
+    dplyr::select(-1) %>% 
+    colnames() %>% 
+    gsub(pattern = "_.$", replacement = "", x = .) %>% 
+    factor(.)
+new_groupalljnkjak
+
+#making the no pIC treatment groups first
+new_groupDMSOjnkjak <- forcats::fct_relevel(new_groupalljnkjak, c("DMSO", "JAK_JNK", "JAK", "JNK_24"))
+
+#making the DGEList for edgeR analysis
+y1_jnkjak <- edgeR::DGEList(counts = df_counts_combined %>% 
+                        dplyr::select(-1), 
+                     genes = df_counts_combined[[1]], 
+                     group = new_groupalljnkjak)
+#filtering out genes with low counts per million
+keep_jnkjak <- rowSums(cpm(y1_jnkjak) > 0.1) >= 3
+y2_jnkjak <- y1_jnkjak[keep_jnkjak,,keep.lib.sizes=FALSE]
+
+#calculating normalization
+y2_jnkjak <- calcNormFactors(y2_jnkjak)
+```
+
+```{r}
+#making the design matrix for future comparisons
+design_alljnkjak <- model.matrix(~ new_groupalljnkjak)
+y3_jnkjak <- estimateDisp(y2_jnkjak, design_alljnkjak)
+
+plotBCV(y3_jnkjak)
+plotMDS(y3_jnkjak)
+```
+
+making a prettier PCA plot
+```{r}
+DMSOjnkjakPCA <- plotMDS(y3_jnkjak, gene.selection="common")
+
+cbind(DMSOjnkjakmds$x, DMSOjnkjakmds$y)
+DMSOjnkjakmds$y
+DMSOjnkjakmds$x
+PCAtableDMSOjnkjak <- as.data.frame(cbind(DMSOjnkjakPCA$x, DMSOjnkjakPCA$y))
+colnames(PCAtableDMSOjnkjak) <- c("x", "y")
+
+stringfornames <- df_counts_combined %>% 
+    dplyr::select(-1) %>% 
+    colnames() %>% 
+    gsub(pattern = "_.$", replacement = "", x = .)%>%
+        gsub(pattern = "_", replacement = " ", x = .) %>%
+        gsub(pattern = "PIC", replacement = "+ PIC", x = .) %>%
+        gsub(pattern = "JNK", replacement = "JNK-IN-8", x = .) 
+PCAtableDMSOjnkjak$Treatment <- stringfornames 
+PCAtableDMSOjnkjak$Treatment <- factor(PCAtableDMSOjnkjak$Treatment, levels = c("DMSO", 
+                                                                "JNK-IN-8 24", "JAK", "JAK JNK-IN-8",
+                                                                "DMSO + PIC",
+                                                                "JNK-IN-8 + PIC 24",
+                                                                "JAK + PIC",
+                                                                "JAK JNK-IN-8 + PIC"))
+
+PCAtableDMSOjnkjak
+```
+
+```{r}
+mythemeMDS <-   theme(legend.title = element_text(family = "Arial", color = "black", size = 8, 
+                                                  face = "bold"),
+                      panel.background = element_rect(color ="black", linewidth = 0.5),
+                   legend.text = element_text(family = "Arial", color = "black", size = 8),
+                   legend.key = element_blank(),
+                   axis.title.x = element_text(family = "Arial", color = "black", size = 8, 
+                                               face = "bold",
+                                               margin = margin(t = 0, r = 0, b = 0, l = 0)),
+                   axis.title.y = element_text(family = "Arial", color = "black", size = 8, 
+                                               face = "bold"),
+                   axis.text.x = element_text(family = "Arial", color = "black", size = 8, 
+                                              margin = margin(t = 2, r = 5, b = 3, l = 5)),
+                   axis.text.y = element_text(family = "Arial", color = "black", size = 8),
+                   panel.grid.minor = element_blank(), #gets rid of grey and lines in the middle
+                   panel.grid.major = element_blank())
+```
+
+```{r fig.height=3, fig.width=5}
+PCAplotDMSOjnkjak <- 
+    ggplot(PCAtableDMSOjnkjak, aes(x = x, y = y, label = Treatment, color = Treatment)) +
+        mythemeMDS+
+        geom_jitter(size = 0.5, position = position_jitter(h=0.15,w=0.15)) +
+        xlab("PC1 (71%)")+
+        ylab("PC2 (14%)")+
+        scale_fill_manual(values = c("#67001FFF", "#B2182BFF", "#D6604DFF", "#F4A582FF",
+                                     "#92C5DEFF", "#4393C3FF", "#2166ACFF", "#053061FF"))+
+        scale_color_manual(values = c("#67001FFF", "#B2182BFF", "#D6604DFF", "#F4A582FF",
+                                     "#92C5DEFF", "#4393C3FF", "#2166ACFF", "#053061FF"))
+PCAplotDMSOjnkjak   
+
+ggsave(filename="et02b21-48_pca_11.19.24.png", plot = PCAplotDMSOjnkjak, device="png", units="in", height=2.25, width=4)
+```
+
+Comparing DMSO vs JNK to see the JNK DE genes (comp1)
+```{r}
+fit_comp1 <- glmQLFit(y3_jnkjak, design_alljnkjak, robust = TRUE)
+plotQLDisp(fit_comp1)
+#comparing DMSO vs JNK
+qlf_comp1 <- glmQLFTest(fit_comp1, coef = 7) 
+#Table of the Top Differentially Expressed Genes/Tags
+topTags(qlf_comp1, sort.by = "logFC")
+```
+```{r}
+#filtering for top DE genes
+top_df_comp1 <- topTags(qlf_comp1, p.value = 0.05, n = Inf) %>%
+        as.data.frame() %>%
+        as_tibble() %>%
+        filter(FDR < 0.05) %>%
+        filter(logCPM > 0.1) %>%
+        filter(abs(logFC) > 0.05) %>%
+        arrange(logFC)
+top_df_comp1
+#readr::write_csv(top_df_comp1, "/Users/ethayer/Google Drive/Grad School/Brooke Lab/Data/et02b21/et02b48/comp1_topDElist_10.16.25.csv")
+```
+
+Comparing DMSO vs JAK to see the JAK DE genes (comp2)
+```{r}
+fit_comp1 <- glmQLFit(y3_jnkjak, design_alljnkjak, robust = TRUE)
+plotQLDisp(fit_comp1)
+#comparing JAK_PIC vs JAK_JNK_PIC
+qlf_comp2 <- glmQLFTest(fit_comp1, coef = 3) 
+#Table of the Top Differentially Expressed Genes/Tags
+topTags(qlf_comp2, sort.by = "logFC")
+```
+
+```{r}
+#filtering for top DE genes
+top_df_comp2 <- topTags(qlf_comp2, p.value = 0.05, n = Inf) %>%
+        as.data.frame() %>%
+        as_tibble() %>%
+        filter(FDR < 0.05) %>%
+        filter(logCPM > 0.1) %>%
+        filter(abs(logFC) >1) %>%
+        arrange(logFC)
+top_df_comp2
+#readr::write_csv(top_df_comp2, "/Users/ethayer/Google Drive/Grad School/Brooke Lab/Data/et02b21/et02b48/comp2_topDElist_10.16.25.csv")
+```
+
+pIC stimulated genes likely dependent on JNK signaling
+JAK+pIC vs JAK+JNK+pIC (comp3)
+```{r}
+#releveling the groups to put JAK+PIC first
+new_groupcomp3 <- forcats::fct_relevel(new_groupalljnkjak, c("JAK_PIC", "DMSO_PIC", "JAK_JNK_PIC", "JNK_PIC_24"))
+
+#new model matrix for the new grouping
+design_comp3 <- model.matrix(~ new_groupcomp3)
+y3_comp3 <- estimateDisp(y2_jnkjak, design_comp3)
+
+plotBCV(y3_comp3)
+plotMDS(y3_comp3)
+
+fit_comp3 <- glmQLFit(y3_comp3, design_comp3, robust = TRUE)
+plotQLDisp(fit_comp3)
+#comparing JAK_PIC vs JAK_JNK_PIC
+qlf_comp3 <- glmQLFTest(fit_comp3, coef = 3) 
+#Table of the Top Differentially Expressed Genes/Tags
+topTags(qlf_comp3, sort.by = "logFC")
+```
+```{r}
+#filtering for top DE genes
+top_df_comp3 <- topTags(qlf_comp3, p.value = 0.05, n = Inf) %>%
+        as.data.frame() %>%
+        as_tibble() %>%
+        filter(FDR < 0.05) %>%
+        filter(logCPM > 0.1) %>%
+        filter(abs(logFC) >1) %>%
+        arrange(logFC)
+top_df_comp3
+#readr::write_csv(top_df_comp3, "/Users/ethayer/Google Drive/Grad School/Brooke Lab/Data/et02b21/et02b48/comp3_topDElist_10.16.25.csv")
+```
+Looking at DE genes in the comp3 that are not DE in comp1 or comp2
+```{r}
+antimerged <- anti_join(top_df_comp3, top_df_comp1, by = "genes")
+
+genes_DE_comp3 <- top_df_comp3[!top_df_comp3$genes %in% top_df_comp1$genes, ]
+
+genes_DE_comp3[!genes_DE_comp3$genes %in% top_df_comp2$genes, ]
+
+```
+
+
+JAK vs JAK+pIC (comp7)
+```{r}
+new_groupcomp7 <- forcats::fct_relevel(new_groupalljnkjak, c("JAK", "JAK_PIC", "JAK_JNK_PIC", "JNK_PIC_24"))
+
+design_comp7 <- model.matrix(~ new_groupcomp7)
+y3_comp7 <- estimateDisp(y2_jnkjak, design_comp7) 
+
+fit_comp7 <- glmQLFit(y3_comp7, design_comp7, robust = TRUE)
+plotQLDisp(fit_comp7)
+# THROWS AN ERROR, CANT ONLY HAVE ONE COLUMN
+qlf_comp7 <- glmQLFTest(fit_comp7, coef = 2) 
+#Table of the Top Differentially Expressed Genes/Tags
+topTags(qlf_comp7, sort.by = "logFC")
+```
+
+```{r}
+top_df_comp7 <- topTags(qlf_comp7, p.value = 0.05, n = Inf) %>%
+        as.data.frame() %>%
+        as_tibble() %>%
+        filter(FDR < 0.05) %>%
+        filter(logCPM > 0.1) %>%
+        filter(abs(logFC) >1) %>%
+        arrange(-abs(logFC))
+
+top_df_comp7
+
+#readr::write_csv(top_df_comp7, "/Users/ethayer/Google Drive/Grad School/Brooke Lab/Data/et02b21/et02b48/comp7_topDElist_7.12.24.csv")
+
+```
+
+JAK vs JAK+JNK+pIC (comp8)
+```{r}
+new_groupcomp8 <- forcats::fct_relevel(new_groupalljnkjak, c("JAK", "JAK_PIC", "JAK_JNK_PIC", "JNK_PIC_24"))
+
+design_comp8 <- model.matrix(~ new_groupcomp8)
+y3_comp8 <- estimateDisp(y2_jnkjak, design_comp8) 
+
+plotBCV(y3_comp8)
+plotMDS(y3_comp8)
+
+fit_comp8 <- glmQLFit(y3_comp8, design_comp8, robust = TRUE)
+plotQLDisp(fit_comp8)
+# THROWS AN ERROR, CANT ONLY HAVE ONE COLUMN
+qlf_comp8 <- glmQLFTest(fit_comp8, coef = 3) 
+#Table of the Top Differentially Expressed Genes/Tags
+topTags(qlf_comp8, sort.by = "logFC")
+```
+
+```{r}
+top_df_comp8 <- topTags(qlf_comp8, p.value = 0.05, n = Inf) %>%
+        as.data.frame() %>%
+        as_tibble() %>%
+        filter(FDR < 0.05) %>%
+        filter(logCPM > 0.1) %>%
+        filter(abs(logFC) >1) %>%
+        arrange(-abs(logFC))
+
+top_df_comp8
+
+#readr::write_csv(top_df_comp8, "/Users/ethayer/Google Drive/Grad School/Brooke Lab/Data/et02b21/et02b48/comp8_topDElist_7.12.24.csv")
+
+```
+
+```{r fig.height=9, fig.width=7}
+mergeddf_78 <- merge(top_df_comp7, top_df_comp8, by = "genes")
+ 
+#getting just the common 27 genes
+topDEgeneslist_merged <- mergeddf_78$genes[1:27]
+#extracting the cpms
+y3_DMSOjnkjak78_cpms <- cpm(y3_comp7, log = TRUE)
+rownames(y3_DMSOjnkjak78_cpms) <- y3_comp7$genes$genes
+#looking at just the pIC conditions
+y3_DMSOjnkjak78_cpms2 <- y3_DMSOjnkjak78_cpms[,c(1,4,5,6,9,11,16,17,18,20,23,24)]
+
+y3_cpms2_comp78 <- y3_DMSOjnkjak78_cpms2[topDEgeneslist_merged, ]
+colors <- paletteer_c("pals::coolwarm", n = 10)
+
+
+#This is a heatmap of all the pIC conditions with the top 27 DE genes
+hm_merged_bycomp78 <- ComplexHeatmap::Heatmap(
+    t(scale(t(y3_cpms2_comp78))),
+    show_row_names = TRUE,
+    show_row_dend = FALSE,
+    show_column_dend = FALSE,
+    col = colors,
+    column_order = c("DMSO_PIC_1", "DMSO_PIC_2", "DMSO_PIC_3",
+                     "JNK_PIC_24_1", "JNK_PIC_24_2", "JNK_PIC_24_3",
+                     "JAK_PIC_1", "JAK_PIC_2", "JAK_PIC_3",
+                     "JAK_JNK_PIC_1", "JAK_JNK_PIC_2", "JAK_JNK_PIC_3"),
+    row_order = c("IFNB1","IFNL1","IFNL3","IFNL2","CXCL10","CCL5","RSAD2",
+                  "CXCL11","RAET1L","OASL","GBP4","OAS2","IFIT2","IFIT1","IFIT3","IL6","JUN",
+                  "CXCL2","CXCL8","CXCL3","DUSP8","LCP1","MAL2","LINC02701","DHX58","NCF2","SLC8A2"))
+
+draw_hm_merged_comp78 <- ComplexHeatmap::draw(hm_merged_bycomp78)
+#ggsave(filename="et02b21.48_hm_10.1.24.png", plot = draw_hm_merged_comp3, device="png", units="in", height=7, width=7)
+```
+```{r fig.height=9, fig.width=5}
+mergeddf_78 <- merge(top_df_comp7, top_df_comp8, by = "genes")
+ 
+#getting just the common 27 genes
+topDEgeneslist_merged <- mergeddf_78$genes[1:27]
+#extracting the cpms
+y3_DMSOjnkjak78_cpms <- cpm(y3_comp7, log = TRUE)
+rownames(y3_DMSOjnkjak78_cpms) <- y3_comp7$genes$genes
+#looking at just the JAK+pIC and JAK+JNK+pIC conditions
+y3_DMSOjnkjak78_cpms3 <- y3_DMSOjnkjak78_cpms[,c(1,4,5,6,9,11)]
+
+y3_cpms3_comp78 <- y3_DMSOjnkjak78_cpms3[topDEgeneslist_merged, ]
+colors <- paletteer_c("pals::coolwarm", n = 10)
+
+hm_merged_bycomp78_11_10_25 <- ComplexHeatmap::Heatmap(
+    t(scale(t(y3_cpms3_comp78))),
+    show_row_names = TRUE,
+    show_row_dend = FALSE,
+    show_column_dend = FALSE,
+    col = colors,
+    column_order = c("JAK_PIC_1", "JAK_PIC_2", "JAK_PIC_3",
+                     "JAK_JNK_PIC_1", "JAK_JNK_PIC_2", "JAK_JNK_PIC_3"),
+    row_order = c("IFNB1","IFNL1","IFNL3","IFNL2","CXCL10","CCL5","RSAD2",
+                  "CXCL11","RAET1L","OASL","GBP4","OAS2","IFIT2","IFIT1","IFIT3","IL6","JUN",
+                  "CXCL2","CXCL8","CXCL3","DUSP8","MAL2","LINC02701","DHX58","SLC8A2", "LCP1","NCF2"))
+
+draw_hm_merged_comp78 <- ComplexHeatmap::draw(hm_merged_bycomp78_11_10_25)
+#ggsave(filename="et02b21.48_hm_11.10.25.png", plot = draw_hm_merged_comp78, device="png", units="in", height=7, width=4)
+```
+
+
+GO results
+```{r}
+comp7_8_cpms <- y3_DMSOjnkjak_cpms[,c(1,4,5,6,9,11,2,7,12)]
+
+commonGenes7_8 <- c("IFNB1", "IFNL1", "IFNL3", "IFNL2", "CXCL10", "CCL5", "RSAD2", "CXCL11", "RAET1L", "OASL", "GBP4", "OAS2", "IFIT2", "IFIT1", "IFIT3", "IL6", "LINC02701", "JUN", "CXCL2", "CXCL8", "DHX58", "CXCL3", "DUSP8", "NCF2", "SLC8A2", "LCP1", "MAL2")
+
+comp7_8_cpms[commonGenes7_8,]
+top_GO_results <- read.csv("/Users/ethayer/Google Drive/Grad School/Brooke Lab/Data/et02b21/top_GO_results_9.20.24.csv")
+mythemeGO <-   theme(legend.title = element_text(family = "Arial", color = "black", size = 8, 
+                                                  face = "bold"),
+                      panel.background = element_rect(color ="black", linewidth = 0.5),
+                   legend.text = element_text(family = "Arial", color = "black", size = 8),
+                   legend.key = element_blank(),
+                   axis.title.x = element_text(family = "Arial", color = "black", size = 8, 
+                                               face = "bold",
+                                               margin = margin(t = 0, r = 0, b = 0, l = 0)),
+                   axis.title.y = element_text(family = "Arial", color = "black", size = 8, 
+                                               face = "bold"),
+                   axis.text.x = element_text(family = "Arial", color = "black", size = 8, 
+                                              margin = margin(t = 2, r = 5, b = 3, l = 5)),
+                   axis.text.y = element_text(family = "Arial", color = "black", size = 8))
+
+GOplot <- ggplot(top_GO_results, aes(x = term_size, y = term_name, size = percent_in_query))+
+        geom_point(stat = "identity", aes(color = negative_log10_of_adjusted_p_value))+
+        mythemeGO+
+        scale_color_paletteer_c("pals::coolwarm")+
+        xlab("GO Term Size")+
+        ylab("")
+GOplot
+#ggsave(filename="et02b21-48_GOplot_10.1.24.png", plot = GOplot, device="png", units="in", height=2.5, width=6.25)
+
+```
+
+JAK+JNK vs JAK+JNK+pIC (comp9)
+```{r}
+new_groupcomp9 <- forcats::fct_relevel(my_grouping_jnkjak, c("JAK_JNK", "JAK_PIC", "JAK_JNK_PIC", "JNK_PIC_24"))
+
+design_comp9 <- model.matrix(~ new_groupcomp9)
+y3_comp9 <- estimateDisp(y2_jnkjak, design_comp9) 
+
+plotBCV(y3_comp9)
+plotMDS(y3_comp9)
+
+fit_comp9 <- glmQLFit(y3_comp9, design_comp9, robust = TRUE)
+plotQLDisp(fit_comp9)
+
+qlf_comp9 <- glmQLFTest(fit_comp9, coef = 3) 
+#Table of the Top Differentially Expressed Genes/Tags
+topTags(qlf_comp9, sort.by = "logFC")
+```
+
+```{r}
+top_df_comp9 <- topTags(qlf_comp9, p.value = 0.05, n = Inf) %>%
+        as.data.frame() %>%
+        as_tibble() %>%
+        filter(FDR < 0.05) %>%
+        filter(logCPM > 0.1) %>%
+        filter(abs(logFC) >1) %>%
+        arrange(-abs(logFC))
+
+
+top_df_comp9
+
+#readr::write_csv(top_df_comp9, "/Users/ethayer/Google Drive/Grad School/Brooke Lab/Data/et02b21/et02b48/comp9_topDElist_7.12.24.csv")
+
+```
+
+pIC+JNK vs JAK+JNK+pIC (comp10)
+```{r}
+new_groupcomp10 <- forcats::fct_relevel(new_groupalljnkjak, c("JNK_PIC_24", "JAK_JNK", "JAK_PIC", "JAK_JNK_PIC" ))
+
+design_comp10 <- model.matrix(~ new_groupcomp10)
+y3_comp10 <- estimateDisp(y2_jnkjak, design_comp10) 
+
+plotBCV(y3_comp10)
+plotMDS(y3_comp10)
+
+fit_comp10 <- glmQLFit(y3_comp10, design_comp10, robust = TRUE)
+plotQLDisp(fit_comp10)
+
+qlf_comp10 <- glmQLFTest(fit_comp10, coef = 4) 
+#Table of the Top Differentially Expressed Genes/Tags
+topTags(qlf_comp10, sort.by = "logFC")
+```
+
+```{r}
+top_df_comp10 <- topTags(qlf_comp10, p.value = 0.05, n = Inf) %>%
+        as.data.frame() %>%
+        as_tibble() %>%
+        filter(FDR < 0.05) %>%
+        filter(logCPM > 0.1) %>%
+        filter(abs(logFC) >1) %>%
+        arrange(-abs(logFC))
+
+
+top_df_comp10
+
+#readr::write_csv(top_df_comp10, "/Users/ethayer/Google Drive/Grad School/Brooke Lab/Data/et02b21/et02b48/comp10_topDElist_10.16.25.csv")
+
+```
+
+
+JAK vs JNK (comp11)
+```{r}
+new_groupcomp11 <- forcats::fct_relevel(new_groupalljnkjak, c("JAK", "JNK_24", "JAK_PIC", "JAK_JNK_PIC" ))
+
+design_comp11 <- model.matrix(~ new_groupcomp11)
+y3_comp11 <- estimateDisp(y2_jnkjak, design_comp11) 
+
+plotBCV(y3_comp11)
+plotMDS(y3_comp11)
+
+fit_comp11 <- glmQLFit(y3_comp11, design_comp11, robust = TRUE)
+plotQLDisp(fit_comp10)
+
+qlf_comp11 <- glmQLFTest(fit_comp11, coef = 2) 
+#Table of the Top Differentially Expressed Genes/Tags
+topTags(qlf_comp11, sort.by = "logFC")
+```
+
+```{r}
+top_df_comp11 <- topTags(qlf_comp11, p.value = 0.05, n = Inf) %>%
+        as.data.frame() %>%
+        as_tibble() %>%
+        filter(FDR < 0.05) %>%
+        filter(logCPM > 0.1) %>%
+        filter(abs(logFC) >1) %>%
+        arrange(-abs(logFC))
+
+
+top_df_comp11
+
+#readr::write_csv(top_df_comp11, "/Users/ethayer/Google Drive/Grad School/Brooke Lab/Data/et02b21/et02b48/comp11_topDElist_10.16.25.csv")
+
+```
+
+```{r}
+sessionInfo()
+```
+
+R version 4.2.2 (2022-10-31)
+Platform: aarch64-apple-darwin20 (64-bit)
+Running under: macOS Ventura 13.0
+
+Matrix products: default
+LAPACK: /Library/Frameworks/R.framework/Versions/4.2-arm64/Resources/lib/libRlapack.dylib
+
+locale:
+[1] en_US.UTF-8/en_US.UTF-8/en_US.UTF-8/C/en_US.UTF-8/en_US.UTF-8
+
+attached base packages:
+[1] grid      stats4    stats     graphics  grDevices utils     datasets  methods   base     
+
+other attached packages:
+ [1] InTAD_1.18.0                             MultiAssayExperiment_1.24.0             
+ [3] SummarizedExperiment_1.28.0              MatrixGenerics_1.10.0                   
+ [5] matrixStats_1.4.1                        TxDb.Hsapiens.UCSC.hg38.knownGene_3.16.0
+ [7] GenomicFeatures_1.50.4                   GenomicRanges_1.50.2                    
+ [9] GenomeInfoDb_1.34.9                      lubridate_1.9.3                         
+[11] forcats_1.0.0                            stringr_1.5.1                           
+[13] purrr_1.0.2                              readr_2.1.5                             
+[15] tibble_3.2.1                             tidyverse_2.0.0                         
+[17] paletteer_1.6.0                          circlize_0.4.16                         
+[19] ComplexHeatmap_2.14.0                    gtools_3.9.5                            
+[21] tidyr_1.3.1                              dplyr_1.1.4                             
+[23] edgeR_3.40.2                             limma_3.54.2                            
+[25] org.Hs.eg.db_3.16.0                      AnnotationDbi_1.60.2                    
+[27] IRanges_2.32.0                           S4Vectors_0.36.2                        
+[29] Biobase_2.58.0                           BiocGenerics_0.44.0                     
+[31] ggplot2_3.5.1                           
+
+loaded via a namespace (and not attached):
+  [1] backports_1.5.0          BiocFileCache_2.6.1      systemfonts_1.1.0        plyr_1.8.9              
+  [5] splines_4.2.2            BiocParallel_1.32.6      digest_0.6.37            foreach_1.5.2           
+  [9] htmltools_0.5.8.1        viridis_0.6.5            magick_2.8.5             fansi_1.0.6             
+ [13] magrittr_2.0.3           memoise_2.0.1            cluster_2.1.6            doParallel_1.0.17       
+ [17] tzdb_0.4.0               Biostrings_2.66.0        vroom_1.6.5              timechange_0.3.0        
+ [21] prettyunits_1.2.0        colorspace_2.1-1         blob_1.2.4               rappdirs_0.3.3          
+ [25] textshaping_0.4.0        xfun_0.47                crayon_1.5.3             RCurl_1.98-1.16         
+ [29] prismatic_1.1.2          iterators_1.0.14         glue_1.7.0               pals_1.9                
+ [33] gtable_0.3.5             zlibbioc_1.44.0          XVector_0.38.0           GetoptLong_1.0.5        
+ [37] DelayedArray_0.24.0      car_3.1-2                shape_1.4.6.1            maps_3.4.2              
+ [41] abind_1.4-8              scales_1.3.0             DBI_1.2.3                rstatix_0.7.2           
+ [45] Rcpp_1.0.13              viridisLite_0.4.2        progress_1.2.3           clue_0.3-65             
+ [49] bit_4.5.0                mapproj_1.2.11           mclust_6.1.1             httr_1.4.7              
+ [53] RColorBrewer_1.1-3       pkgconfig_2.0.3          XML_3.99-0.17            farver_2.1.2            
+ [57] dbplyr_2.5.0             locfit_1.5-9.10          utf8_1.2.4               reshape2_1.4.4          
+ [61] tidyselect_1.2.1         labeling_0.4.3           rlang_1.1.4              munsell_0.5.1           
+ [65] tools_4.2.2              cachem_1.1.0             cli_3.6.3                generics_0.1.3          
+ [69] RSQLite_2.3.7            broom_1.0.6              evaluate_1.0.0           fastmap_1.2.0           
+ [73] yaml_2.3.10              ragg_1.3.3               rematch2_2.1.2           knitr_1.48              
+ [77] bit64_4.5.2              KEGGREST_1.38.0          xml2_1.3.6               biomaRt_2.54.1          
+ [81] compiler_4.2.2           rstudioapi_0.16.0        filelock_1.0.3           curl_5.2.3              
+ [85] png_0.1-8                ggsignif_0.6.4           statmod_1.5.0            stringi_1.8.4           
+ [89] lattice_0.22-6           Matrix_1.6-5             vctrs_0.6.5              pillar_1.9.0            
+ [93] lifecycle_1.0.4          GlobalOptions_0.1.2      bitops_1.0-8             rtracklayer_1.58.0      
+ [97] qvalue_2.30.0            R6_2.5.1                 BiocIO_1.8.0             gridExtra_2.3           
+[101] codetools_0.2-20         dichromat_2.0-0.1        rjson_0.2.23             withr_3.0.1             
+[105] GenomicAlignments_1.34.1 Rsamtools_2.14.0         GenomeInfoDbData_1.2.9   parallel_4.2.2          
+[109] hms_1.1.3                rmarkdown_2.28           carData_3.0-5            ggpubr_0.6.0            
+[113] restfulr_0.0.15         
