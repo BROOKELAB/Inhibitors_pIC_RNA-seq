@@ -11,7 +11,7 @@ The goal of this analysis is to see how JNK-IN-8 treatment affects the _IFNL1_ r
 We added ruxolitinib treatment to the experiment to also control for any secondary signaling that may be taking place from the JAK/STAT pathway.
 
 ## Analysis in R
-### Script: eto2b21.48_12.8.25.Rmd
+### Script: et02b21.48_12.8.25.Rmd
 This script performs:\
 :white_check_mark: Loads the count matrix and creates an edgeR object for DE analysis\
 :white_check_mark: Creates a PCA plot to look at the transcriptional similarity of the different experimental conditions\
