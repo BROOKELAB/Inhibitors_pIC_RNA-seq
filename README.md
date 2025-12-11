@@ -12,10 +12,10 @@ We added ruxolitinib treatment to the experiment to also control for any seconda
 
 ## Analysis in R
 ### Script: eto2b21.48_12.8.25.Rmd
-This script performs:
-:white_check_mark: Loads the count matrix and creates an edgeR object for DE analysis
-:white_check_mark: Creates a PCA plot to look at the transcriptional similarity of the different experimental conditions
-:white_check_mark: Creates multiple design matrices and QLF tests to look at the DE of specific conditions (comp1-11)
+This script performs:\
+:white_check_mark: Loads the count matrix and creates an edgeR object for DE analysis\
+:white_check_mark: Creates a PCA plot to look at the transcriptional similarity of the different experimental conditions\
+:white_check_mark: Creates multiple design matrices and QLF tests to look at the DE of specific conditions (comp1-11)\
 :white_check_mark: Creates a heatmap of the expressions of specific genes of interest
 
 ### Requirements
